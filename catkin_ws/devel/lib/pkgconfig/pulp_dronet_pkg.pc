@@ -1,0 +1,8 @@
+prefix=/home/conor/catkin_ws/devel
+
+Name: pulp_dronet_pkg
+Description: Description of pulp_dronet_pkg
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

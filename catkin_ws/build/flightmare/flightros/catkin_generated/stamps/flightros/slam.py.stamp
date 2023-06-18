@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+
+import rospy
+import cv2
+import numpy as np
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image
+from flightlib import UnityBridge, Quadrotor, RGBCamera, QuadState, UnityScene
+from geometry_msgs.msg import Vector3, Quaternion
+from std_msgs.msg import Header
+
+def main():
+    rospy.init_node('camera_example')
+    rate = rospy.Rate(50.0)
+
+    # publishers
+    rgb_pub = rospy.Publisher('/rgb', Image, queue_size=1)
+    depth_pub = rospy.Publisher('/depth', Image, queue_size=1)
+    segmentation_pub = rospy.Publisher('/segmentation', Image, queue_size=1)
+    opticalflow_pub = rospy.Publisher('/opticalflow', Image, queue_size=1)
+
+    # unity quadrotor
+    quad_ptr = Quadrotor()
+    quad_size = Vector3(0.5, 0.5, 0.5)
+    quad_ptr.setSize(quad_size)
+    quad_state = QuadState()
+
+    # RGB camera
+    rgb_camera = RGBCamera()
+
+    # Flightmare(Unity3D)
+    unity_bridge_ptr = UnityBridge.getInstance()
+    scene_id = UnityScene.WAREHOUSE
+    unity_ready = False
+
+    # initialize publishers
+    bridge = CvBridge()
+
+    # Flightmare
+    B_r_BC = Vector3(0.0, 0.0, 0.3)
+    R_BC = Quaternion(1.0, 0.0, 0.0, 0.0).toRotationMatrix()
+    print(R_BC)
+    rgb_camera.setFOV(90)
+    rgb_camera.setWidth(640)
+    rgb_camera.setHeight(360)
+    rgb_camera.setRelPose(B_r_BC, R_BC)
+    rgb_camera.setPostProcesscing([True, True, True])  # depth, segmentation, optical flow
+    quad_ptr.addRGBCamera(rgb_camera)
+
+    # initialization
+    quad_state.setZero()
+    quad_ptr.reset(quad_state)
+
+    # connect unity
+    unity_bridge_ptr.addQuadrotor(quad_ptr)
+    unity_ready = unity_bridge_ptr.connectUnity(scene_id)
+
+    frame_id = 0
+    while not rospy.is_shutdown() and unity_ready:
+        quad_state.x[QS.POSZ] += 0.1
+
+        quad_ptr.setState(quad_state)
+
+        unity_bridge_ptr.getRender(frame_id)
+        unity_bridge_ptr.handleOutput()
+
+        img = np.zeros((360, 640, 3), dtype=np.uint8)
+
+        timestamp = rospy.Time.now()
+
+        rgb_camera.getRGBImage(img)
+        rgb_msg = bridge.cv2_to_imgmsg(img, encoding="bgr8")
+        rgb_msg.header.stamp = timestamp
+        rgb_pub.publish(rgb_msg)
+
+        rgb_camera.getDepthMap(img)
+        depth_msg = bridge.cv2_to_imgmsg(img, encoding="32FC1")
+        depth_msg.header.stamp = timestamp
+        depth_pub.publish(depth_msg)
+
+        rgb_camera.getSegmentation(img)
+        segmentation_msg = bridge.cv2_to_imgmsg(img, encoding="bgr8")
+        segmentation_msg.header.stamp = timestamp
+        segmentation_pub.publish(segmentation_msg)
+
+        rgb_camera.getOpticalFlow(img)
+        opticflow_msg = bridge.cv2_to_imgmsg(img, encoding="bgr8")
+        opticflow_msg.header.stamp = timestamp
+        opticalflow_pub.publish(opticflow_msg)
+
+        frame_id += 1
+
+if __name__ == '__main__':
+    main()
